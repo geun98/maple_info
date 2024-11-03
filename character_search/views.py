@@ -6,6 +6,7 @@ from django.urls import reverse
 from django.conf import settings
 import aiohttp
 import asyncio
+from django.template.defaultfilters import register
 
 BASE_URL = "https://open.api.nexon.com/maplestory/v1"
 API_KEY = settings.NEXON_API_KEY  # settings.py에서 API 키를 가져옵니다.
@@ -39,6 +40,7 @@ async def get_character_info(character_name):
         # basic 정보만 가져오기
         basic_info = await get_api_data(session, "/character/basic", {"ocid": ocid})
         popularity_info = await get_api_data(session, "/character/popularity", {"ocid": ocid})
+        
 
 
         return {

@@ -6,9 +6,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 
-SECRET_KEY = "django-insecure-pjgvix$#didu%=w@^h5daf5iomo5*=td6=(-y&jv_6shp$nw5u"
+from decouple import config  # python-decouple 패키지에서 config 함수를 가져옴
 
-NEXON_API_KEY = "test_37837ea2608495a9982a398488e5fb1180387e8a052148b3bcd9da9f3744bf1cefe8d04e6d233bd35cf2fabdeb93fb0d"
+NEXON_API_KEY = config('NEXON_API_KEY')  # .env 파일에서 API 키를 불러옴
+SECRET_KEY = config('DJANGO_SECRET_KEY') # .env 파일에서 시크릿 키 호출
+OPENAI_API_KEY = config('OPENAI_API_KEY') # .env 파일에서 open ai 키 호출
 DEBUG = True
 
 ALLOWED_HOSTS = []
@@ -25,6 +27,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'character_search',
     'character_info',
+    'chatbot',
 ]
 
 
@@ -104,8 +107,10 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/4.2/howto/static-files/
 
-STATIC_URL = "static/"
-
+STATIC_URL = "/static/"
+STATICFILES_DIRS = (
+    os.path.join(BASE_DIR, 'static'),
+) 
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
 

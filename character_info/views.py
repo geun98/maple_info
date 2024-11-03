@@ -1,148 +1,356 @@
-from django.http import JsonResponse
-from django.views.decorators.http import require_http_methods
-from django.core.cache import cache
-import requests
-import os
+# character_info/views.py
 import asyncio
 import aiohttp
-from django.shortcuts import render, redirect
-from django.urls import reverse
+from django.shortcuts import render
 from django.conf import settings
-import json
-import logging
-
-logger = logging.getLogger(__name__)
+from asgiref.sync import async_to_sync
 
 BASE_URL = "https://open.api.nexon.com/maplestory/v1"
 API_KEY = settings.NEXON_API_KEY
 
-# 공통적인 API 호출 로직
 async def get_api_data(session, endpoint, params=None):
     headers = {"x-nxopen-api-key": API_KEY}
     url = f"{BASE_URL}{endpoint}"
-    try:
-        async with session.get(url, headers=headers, params=params) as response:
-            response.raise_for_status()
-            logger.info(f"API 요청 성공: {url}, 응답: {await response.json()}")
+    async with session.get(url, headers=headers, params=params) as response:
+        if response.status == 200:
             return await response.json()
-    except aiohttp.ClientError as e:
-        logger.error(f"API 요청 중 오류 발생: {e}, URL: {url}, Params: {params}")
         return None
 
-# 캐릭터 ID 조회 함수
-async def get_character_id(session, character_name):
-    return await get_api_data(session, "/id", {"character_name": character_name})
-
-# 각 정보별 API 호출을 개별 함수로 분리
-async def get_basic_info(session, ocid):
-    return await get_api_data(session, "/character/basic", {"ocid": ocid})
-
-async def get_stat_info(session, ocid):
-    return await get_api_data(session, "/character/stat", {"ocid": ocid})
-
-async def get_item_equipment_info(session, ocid):
-    return await get_api_data(session, "/character/item-equipment", {"ocid": ocid})
-
-async def get_ability_info(session, ocid):
-    return await get_api_data(session, "/character/ability", {"ocid": ocid})
-
-async def get_set_effect_info(session, ocid):
-    return await get_api_data(session, "/character/set-effect", {"ocid": ocid})
-
-async def get_link_skill_info(session, ocid):
-    return await get_api_data(session, "/character/link-skill", {"ocid": ocid})
-
-async def get_hyper_stat_info(session, ocid):
-    return await get_api_data(session, "/character/hyper-stat", {"ocid": ocid})
-
-async def get_symbol_equipment_info(session, ocid):
-    return await get_api_data(session, "/character/symbol-equipment", {"ocid": ocid})
-
-async def get_hexamatrix_stat_info(session, ocid):
-    return await get_api_data(session, "/character/hexamatrix-stat", {"ocid": ocid})
-
-async def get_popularity_info(session, ocid):
-    return await get_api_data(session, "/character/popularity", {"ocid": ocid})
-
-
-# 캐릭터 정보를 가져오는 메인 함수
-async def get_character_info(character_name):
+async def get_character_info(character_name, date=None):
     async with aiohttp.ClientSession() as session:
-        # 캐릭터 ID 조회
-        character_id_data = await get_character_id(session, character_name)
-        if not character_id_data or 'ocid' not in character_id_data:
-            logger.warning(f"캐릭터 ID 조회 실패: {character_name}")
+        id_data = await get_api_data(session, "/id", {"character_name": character_name})
+        if not id_data or 'ocid' not in id_data:
             return None
 
-        ocid = character_id_data['ocid']
-        logger.info(f"캐릭터 ID 조회 성공: {ocid}")
+        ocid = id_data['ocid']
+        params = {"ocid": ocid}
+        if date:
+            params["date"] = date
 
-        # 각 정보를 개별적으로 비동기 처리
-        basic_info = await get_basic_info(session, ocid)
-        stat_info = await get_api_data(session, "/character/stat", {"ocid": ocid})
-        item_equipment_info = await get_item_equipment_info(session, ocid)
-        ability_info = await get_ability_info(session, ocid)
-        set_effect_info = await get_set_effect_info(session, ocid)
-        link_skill_info = await get_link_skill_info(session, ocid)
-        hyper_stat_info = await get_hyper_stat_info(session, ocid)
-        symbol_equipment_info = await get_symbol_equipment_info(session, ocid)
-        hexamatrix_stat_info = await get_hexamatrix_stat_info(session, ocid)
-        popularity_info = await get_popularity_info(session, ocid)
-
-        # 각 정보별로 딕셔너리 구성
-        character_data = {
+        basic_info = await get_api_data(session, "/character/basic", params)
+        stat_info = await get_api_data(session, "/character/stat", params)
+        item_equipment_info = await get_api_data(session, "/character/item-equipment", params)
+        ability_info = await get_api_data(session, "/character/ability", params)
+        set_effect_info = await get_api_data(session, "/character/set-effect", params)
+        link_skill_info = await get_api_data(session, "/character/link-skill", params)
+        hexamatrix_info = await get_api_data(session, "/character/hexamatrix", params)
+        hexamatrix_stat_info = await get_api_data(session, "/character/hexamatrix-stat", params)
+        symbol_equipment_info = await get_api_data(session, "/character/symbol-equipment", params)
+        
+        return {
             "basic_info": basic_info,
             "stat_info": stat_info,
             "item_equipment_info": item_equipment_info,
             "ability_info": ability_info,
             "set_effect_info": set_effect_info,
             "link_skill_info": link_skill_info,
-            "hyper_stat_info": hyper_stat_info,
-            "symbol_equipment_info": symbol_equipment_info,
-            "hexamatrix_stat_info": hexamatrix_stat_info,
-            "popularity_info": popularity_info
+            "hexamatrix_info": hexamatrix_info,
+            "hexamatrix_stat_info" : hexamatrix_stat_info,
+            "symbol_equipment_info" : symbol_equipment_info
         }
 
-        logger.info(f"Character data for {character_name}: {json.dumps(character_data, indent=2)}")
-        return character_data
+
+    
+def extract_final_stats(stat_info):
+    # final_stat에서 원하는 정보 추출
+    final_stats = {}
+    for stat in stat_info.get('final_stat', []):
+        # stat_name에서 띄어쓰기를 언더바로 변환
+        stat_name = stat['stat_name'].replace(' ', '_')
+        final_stats[stat_name] = stat['stat_value']
+    
+    return final_stats
+
+def extract_item_equipment(item_equipment_info):
+    if not isinstance(item_equipment_info, dict) or 'item_equipment' not in item_equipment_info:
+        return {}
+    
+    equipment_data = {
+        "preset_no": item_equipment_info.get("preset_no", "정보 없음"),
+        "item_equipment": []
+    }
+
+    for item in item_equipment_info.get('item_equipment', []):
+        equipment_item = {
+            "part": item.get("item_equipment_part", "정보 없음"),
+            "slot": item.get("item_equipment_slot", "정보 없음"),
+            "name": item.get("item_name", "정보 없음"),
+            "icon": item.get("item_icon", "정보 없음"),
+            "description": item.get("item_description", "정보 없음"),
+            "shape_name": item.get("item_shape_name", "정보 없음"),
+            "shape_icon": item.get("item_shape_icon", "정보 없음"),
+            "gender": item.get("item_gender", "정보 없음"),
+            "total_option": item.get("item_total_option", {}),
+            "base_option": item.get("item_base_option", {}),
+            "potential_option_grade": item.get("potential_option_grade", "정보 없음"),
+            "additional_potential_option_grade": item.get("additional_potential_option_grade", "정보 없음"),
+            "potential_options": [
+                item.get("potential_option_1"),
+                item.get("potential_option_2"),
+                item.get("potential_option_3")
+            ],
+            "additional_potential_options": [
+                item.get("additional_potential_option_1"),
+                item.get("additional_potential_option_2"),
+                item.get("additional_potential_option_3")
+            ],
+            "exceptional_option": item.get("item_exceptional_option", {}),
+            "add_option": item.get("item_add_option", {}),
+            "starforce": item.get("starforce", "0"),
+            "starforce_scroll_flag": item.get("starforce_scroll_flag", "정보 없음"),
+            "scroll_upgrade": item.get("scroll_upgrade", "0"),
+            "scroll_upgradeable_count": item.get("scroll_upgradeable_count", "0"),
+            "cuttable_count": item.get("cuttable_count", "0"),
+            "golden_hammer_flag": item.get("golden_hammer_flag", "정보 없음"),
+            "scroll_resilience_count": item.get("scroll_resilience_count", "0"),
+            "soul_name": item.get("soul_name", "정보 없음"),
+            "soul_option": item.get("soul_option", "정보 없음"),
+            "item_etc_option": item.get("item_etc_option", {}),
+            "item_starforce_option": item.get("item_starforce_option", {})
+        }
+        equipment_data["item_equipment"].append(equipment_item)
+
+    return equipment_data
 
 
-# 캐릭터 검색 뷰
-def character_search_view(request):
-    query = request.GET.get('q')
-    if query:
-        character_info = asyncio.run(get_character_info(query))
-        return render(request, 'character_search.html', {
-            'character_info': character_info,
-            'query': query
+def extract_ability_info(ability_info):
+    if not isinstance(ability_info, dict):
+        return {}
+
+    ability_data = {
+        "grade": ability_info.get("ability_grade", "정보 없음"),
+        "abilities": []
+    }
+    
+    for ability in ability_info.get("ability_info", []):
+        ability_data["abilities"].append({
+            "no": ability.get("ability_no", "정보 없음"),
+            "grade": ability.get("ability_grade", "정보 없음"),
+            "value": ability.get("ability_value", "정보 없음"),
         })
-    return render(request, 'character_search.html')
+    
+    return ability_data
+
+def extract_set_effect(set_effect_info):
+    # set_effect_info가 딕셔너리인지 확인하고 'set_effect' 필드를 가져옴
+    if not isinstance(set_effect_info, dict) or 'set_effect' not in set_effect_info:
+        print("set_effect_info의 구조가 잘못되었습니다:", set_effect_info)
+        return {}
+
+    # 'set_effect' 리스트를 추출
+    set_effects_list = set_effect_info.get('set_effect', [])
+    if not isinstance(set_effects_list, list):
+        return {}
+
+    set_effect_data = {
+        "set_effects": []
+    }
 
 
-# 캐릭터 정보 뷰
-def character_info_view(request, character_name):
-    character_info = asyncio.run(get_character_info(character_name))
-    logger.info(f"Character info: {json.dumps(character_info, indent=2)}")
+    for set_effect in set_effects_list:
+        set_data = {
+            "set_name": set_effect.get("set_name", "정보 없음"),
+            "total_set_count": set_effect.get("total_set_count", "정보 없음"),
+            "set_effects": [],
+            "set_option_full": []
+        }
+
+        # 세트 효과 정보 (set_effect_info)
+        for effect in set_effect.get("set_effect_info", []):
+            effect_data = {
+                "set_count": effect.get("set_count", "정보 없음"),
+                "set_option": effect.get("set_option", "정보 없음")
+            }
+            set_data["set_effects"].append(effect_data)
+
+        # 전체 세트 옵션 정보 (set_option_full)
+        for full_effect in set_effect.get("set_option_full", []):
+            full_effect_data = {
+                "set_count": full_effect.get("set_count", "정보 없음"),
+                "set_option": full_effect.get("set_option", "정보 없음")
+            }
+            set_data["set_option_full"].append(full_effect_data)
+
+        set_effect_data["set_effects"].append(set_data)
+
+
+    return set_effect_data
+
+
+
+def extract_link_skills(link_skill_info):
+    if not isinstance(link_skill_info, dict):
+        return {}
+
+    extracted_skills = {}
+    
+    for preset_key, skills in link_skill_info.items():
+        if preset_key.startswith('character_link_skill_preset_'):
+            preset_number = preset_key.split('_')[-1]
+            extracted_skills[f'preset_{preset_number}'] = []
+            
+            for skill in skills:
+                skill_data = {
+                    "name": skill.get("skill_name", "정보 없음"),
+                    "description": skill.get("skill_description", "정보 없음"),
+                    "level": skill.get("skill_level", 0),
+                    "effect": skill.get("skill_effect", "정보 없음"),
+                    "icon": skill.get("skill_icon", "정보 없음")
+                }
+                extracted_skills[f'preset_{preset_number}'].append(skill_data)
+    
+    return extracted_skills
+
+def extract_hexa_stats(hexamatrix_stat_info):
+    if not isinstance(hexamatrix_stat_info, dict):
+        return {}
+
+    # 헥사 스탯 정보를 담을 기본 구조
+    hexa_stat_data = {
+        "character_hexa_stat_core": [],
+        "preset_hexa_stat_core": []
+    }
+
+    # character_hexa_stat_core 정보 추출
+    for stat in hexamatrix_stat_info.get("character_hexa_stat_core", []):
+        hexa_stat_data["character_hexa_stat_core"].append({
+            "slot_id": stat.get("slot_id", "정보 없음"),
+            "main_stat_name": stat.get("main_stat_name", "정보 없음"),
+            "sub_stat_name_1": stat.get("sub_stat_name_1", "정보 없음"),
+            "sub_stat_name_2": stat.get("sub_stat_name_2", "정보 없음"),
+            "main_stat_level": stat.get("main_stat_level", 0),
+            "sub_stat_level_1": stat.get("sub_stat_level_1", 0),
+            "sub_stat_level_2": stat.get("sub_stat_level_2", 0),
+            "stat_grade": stat.get("stat_grade", 0)
+        })
+
+    # preset_hexa_stat_core 정보 추출
+    for preset_stat in hexamatrix_stat_info.get("preset_hexa_stat_core", []):
+        hexa_stat_data["preset_hexa_stat_core"].append({
+            "slot_id": preset_stat.get("slot_id", "정보 없음"),
+            "main_stat_name": preset_stat.get("main_stat_name", "정보 없음"),
+            "sub_stat_name_1": preset_stat.get("sub_stat_name_1", "정보 없음"),
+            "sub_stat_name_2": preset_stat.get("sub_stat_name_2", "정보 없음"),
+            "main_stat_level": preset_stat.get("main_stat_level", 0),
+            "sub_stat_level_1": preset_stat.get("sub_stat_level_1", 0),
+            "sub_stat_level_2": preset_stat.get("sub_stat_level_2", 0),
+            "stat_grade": preset_stat.get("stat_grade", 0)
+        })
+
+    return hexa_stat_data
+
+def extract_hexa(hexamatrix_info):
+    if not isinstance(hexamatrix_info, dict):
+        return {}
+
+    # 헥사 스킬 정보를 담을 기본 구조
+    hexa_data = {
+        "character_hexa_core_equipment" : []
+    }
+
+    # character_hexa_core_equipment 정보 추출
+    for hexa in hexamatrix_info.get("character_hexa_core_equipment", []):
+        hexa_data["character_hexa_core_equipment"].append({
+            "hexa_core_name": hexa.get("hexa_core_name", "정보 없음"),
+            "hexa_core_level": hexa.get("hexa_core_level", "정보 없음"),
+            "hexa_core_type": hexa.get("hexa_core_type", "정보 없음"),
+        })
+
+
+    return hexa_data
+
+
+def extract_symbols(symbol_equipment_info):
+    if not isinstance(symbol_equipment_info, dict):
+        return {}
+
+    # 심볼 정보를 담을 기본 구조
+    symbol_data = {
+        "authentic_symbols": [],
+        "arcane_symbols": []
+    }
+
+    # symbol 데이터가 존재할 때
+    for symbol in symbol_equipment_info.get("symbol", []):
+        symbol_name = symbol.get("symbol_name", "")
+
+        # 어센틱 심볼 추출
+        if "어센틱" in symbol_name:
+            symbol_data["authentic_symbols"].append({
+                "name": symbol_name,
+                "icon": symbol.get("symbol_icon"),
+                "description": symbol.get("symbol_description"),
+                "force": symbol.get("symbol_force"),
+                "level": symbol.get("symbol_level"),
+                "stats": {
+                    "str": symbol.get("symbol_str"),
+                    "dex": symbol.get("symbol_dex"),
+                    "int": symbol.get("symbol_int"),
+                    "luk": symbol.get("symbol_luk"),
+                    "hp": symbol.get("symbol_hp"),
+                },
+                "growth_count": symbol.get("symbol_growth_count"),
+                "require_growth_count": symbol.get("symbol_require_growth_count")
+            })
+
+        # 아케인 심볼 추출
+        elif "아케인" in symbol_name:
+            symbol_data["arcane_symbols"].append({
+                "name": symbol_name,
+                "icon": symbol.get("symbol_icon"),
+                "description": symbol.get("symbol_description"),
+                "force": symbol.get("symbol_force"),
+                "level": symbol.get("symbol_level"),
+                "stats": {
+                    "str": symbol.get("symbol_str"),
+                    "dex": symbol.get("symbol_dex"),
+                    "int": symbol.get("symbol_int"),
+                    "luk": symbol.get("symbol_luk"),
+                    "hp": symbol.get("symbol_hp"),
+                },
+                "growth_count": symbol.get("symbol_growth_count"),
+                "require_growth_count": symbol.get("symbol_require_growth_count")
+            })
+
+    return symbol_data
+
+def character_info_view(request):
+    character_name = request.GET.get('character_name') 
+
+async def character_info_view(request, character_name):
+    # URL에서 받은 character_name 인수 사용
+    character_info = await get_character_info(character_name)
 
     if character_info:
-        logger.info(f"Keys in character_info: {character_info.keys()}")
-        if 'stat_info' in character_info:
-            stat_info = character_info['stat_info']
-            logger.info(f"Stat info: {json.dumps(stat_info, indent=2)}")
-            if 'final_stat' in stat_info:
-                final_stats = {stat['stat_name']: stat['stat_value'] for stat in stat_info['final_stat']}
-                logger.info(f"Final stats: {json.dumps(final_stats, indent=2)}")
-            else:
-                logger.warning("No 'final_stat' in stat_info")
-        else:
-            logger.warning("No 'stat_info' in character_info")
+        # 각 데이터를 추출하는 함수들
+        final_stats = extract_final_stats(character_info.get('stat_info', {}))
+        equipment_data = extract_item_equipment(character_info.get('item_equipment_info', []))
+        ability_data = extract_ability_info(character_info.get('ability_info', {}))
+        set_effect_data = extract_set_effect(character_info.get('set_effect_info', []))
+        link_skill_data = extract_link_skills(character_info.get('link_skill_info', []))
+        hexa_stats = extract_hexa_stats(character_info.get('hexamatrix_stat_info', []))
+        hexa_data = extract_hexa(character_info.get('hexamatrix_info', []))
+        symbol_data = extract_symbols(character_info.get('symbol_equipment_info', []))
 
+        # 템플릿으로 전달할 컨텍스트
         context = {
             'character_info': character_info,
-            'final_stats': final_stats if 'final_stats' in locals() else {},
+            'final_stats': final_stats,
+            'equipment_data': equipment_data,
+            'ability_data': ability_data,
+            'set_effect_data': set_effect_data,
+            'link_skill_data': link_skill_data,
+            'hexa_stats': hexa_stats,
+            'hexa_data' : hexa_data,
+            'symbol_data' : symbol_data,
+            'preset_range': range(1, 4)
         }
-        return render(request, 'character_info.html', context)
+
+
+        return render(request, 'character_info/info.html', context)
     else:
-        logger.warning(f"No character info found for: {character_name}")
         return render(request, 'error.html', {"message": "캐릭터 정보를 찾을 수 없습니다."})
     
+
+def chatbot_view(request):
+    return render(request, 'character_info/info.html')  # 챗봇 템플릿 경로
